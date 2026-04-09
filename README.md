@@ -1,4 +1,4 @@
-# Kinu Ilm Fehrast (KIF)
+# Ilm Fehrist (IF)
 
 This is just a personal project I've developed through AI assistance.
 Mostly to help me keep track of my books, progress in courses related
