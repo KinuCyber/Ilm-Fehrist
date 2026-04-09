@@ -77,3 +77,13 @@ Tags are independent entities. Any item of any type can have multiple tags. Tags
 - Product-specific metadata and progression unit (milestone equivalent for Products)
 - Project-specific metadata and progression unit
 - Whether reading position can move backwards, or is forward-only
+
+---
+
+For any inquiries: **contact@kinu.uk**
+
+Ilm Fehrist - علم فہرست
+
+&copy; Kinu Cyber
+
+Released under GNU GPL-3.0.
