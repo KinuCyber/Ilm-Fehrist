@@ -1,18 +1,16 @@
 # Ilm Fehrist (IF)
 
-This is just a personal project I've developed through AI assistance.
-Mostly to help me keep track of my books, progress in courses related
-to the books, such as Lamport's paper for Gnosyn
+Ilm Fehrist is a personal knowledge indexing system designed to track
+progress across books, courses, products, and projects.
 
-**Entities & Hierarchy**
+A local-first, progress-aware knowledge indexing system.
+Part of the Kinu Cyber ecosystem.
 
-There are four entity types, arranged in a strict composition hierarchy:
+**Entities & Relations**
 
+There are four item types, conceptually arranged as:
 ```
-Project
-`-- Product
-    `-- Course
-        `-- Book
+Project --> Product --> Course --> Book
 ```
 
 Valid edge relationships are:
