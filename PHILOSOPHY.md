@@ -1,7 +1,7 @@
 # Ilm Fehrist - System Philosophy
 
 This document is the single source of truth for application philosophy.
-Read DESIGN.md for the implement of the following philosophy as core
+Read [DESIGN.md](./DESIGN.md) for the implement of the following philosophy as core
 logic and database schema.
 
 ## Entities
@@ -50,7 +50,7 @@ Cycles are forbidden. Enforced in application logic, not SQL.
 
 ## Progress
 
-Progress is stored on each item as a float (0.0–1.0), updated on change, not computed at query time.
+Progress is stored on each item as a float (0.0 - 1.0), updated on change, not computed at query time.
 
 ### Per Type
 
@@ -98,7 +98,7 @@ Objectives are the shared progression unit across Course, Product, and Project. 
 
 ### Properties
 
-- Progress on a leaf Objective is set manually (0.0–1.0)
+- Progress on a leaf Objective is set manually (0.0 - 1.0)
 - Progress on a parent Objective is derived from its sub-Objectives
 - Objectives carry a weight, auto-managed identically to edge weights
 - Completing an Objective triggers the same upward propagation as completing a child item
@@ -109,11 +109,11 @@ Objectives are the shared progression unit across Course, Product, and Project. 
 
 Objectives are recursive. A top-level Objective can contain sub-Objectives, whose progress rolls up into the parent Objective automatically. This allows coarse tasks like "Implementation" or "Marketing" to be broken into finer-grained trackable pieces when needed.
 
-**Discipline rule:** An Objective should only be broken into sub-Objectives if its sub-tasks are so different in nature that a single progress estimate would be meaningless. If you can honestly say "this is about 40% done," keep it atomic. Sub-Objectives should be kept as shallow as possible — one level deep unless there is a genuine reason to go further. Decomposition is not a substitute for progress.
+**Discipline rule:** An Objective should only be broken into sub-Objectives if its sub-tasks are so different in nature that a single progress estimate would be meaningless. If you can honestly say "this is about 40% done," keep it atomic. Sub-Objectives should be kept as shallow as possible -- one level deep unless there is a genuine reason to go further. Decomposition is not a substitute for progress.
 
 ### Parentage
 
-Every Objective belongs to exactly one parent — either an item (Course, Product, or Project) or another Objective. Never both, never neither. This is enforced at the schema level.
+Every Objective belongs to exactly one parent -- either an item (Course, Product, or Project) or another Objective. Never both, never neither. This is enforced at the schema level.
 
 ## Bookmarks vs Reading Position
 
@@ -128,14 +128,14 @@ These are two fully independent concepts with no overlap.
 ### Reading Position
 - Exactly one per Book, always
 - The **only** thing that triggers progress recomputation
-- Stored as an upsert — duplicates are structurally impossible
+- Stored as an upsert -- duplicates are structurally impossible
 - **Forward-only:** reading position cannot move backwards
 - Every update is the definitive statement of how far a Book has been read
 
 ## Books & Filesystem
 
 - The filesystem is the single source of truth. The database is a queryable index built on top of it, never a replacement for it.
-- Files are never stored in the database — only their relative path and metadata.
+- Files are never stored in the database -- only their relative path and metadata.
 - A crawler reconciles disk state against DB state on demand.
 
 ### Crawler Logic
@@ -143,11 +143,13 @@ These are two fully independent concepts with no overlap.
 | Disk    | DB      | Action                                        |
 |---------|---------|-----------------------------------------------|
 | EXISTS  | MISSING | INSERT as new item                            |
-| EXISTS  | EXISTS  | Check hash — UPDATE path if moved             |
+| EXISTS  | EXISTS  | Check hash -- UPDATE path if moved            |
 | MISSING | EXISTS  | Mark status as `missing` (never DELETE)       |
 
 - File identity uses MD5 of the first 64KB. Detects moves and renames without reading entire files, and preserves all metadata, tags, and reading history when files are reorganized.
 - Removed files are marked `missing`, not deleted. No metadata is ever lost due to a filesystem change.
+
+Reading position updates are not triggered by the crawler. They are handled separately by the ReaderWatcher module inside the daemon, which watches Zathura's history file. The crawler is concerned only with the existence and location of files, never with how far into them the user has read.
 
 ## Statuses
 
@@ -163,23 +165,58 @@ These are two fully independent concepts with no overlap.
 
 ## Versioning (Products)
 
-Versions are a property of a Product, not separate items. A Product maintains a current version and a version history. Each version entry can optionally hold a planned and actual release date — designed to accommodate future deadline tracking without enforcing it prematurely.
+Versions are a property of a Product, not separate items. A Product maintains a current version and a version history. Each version entry can optionally hold a planned and actual release date -- designed to accommodate future deadline tracking without enforcing it prematurely.
 
 ## Tags
 
-Tags are independent entities. Any item of any type can have multiple tags. Tags enable cross-cutting queries that the hierarchy alone cannot express — for example, all unread cryptography material regardless of which Course or Product it belongs to.
+Tags are independent entities. Any item of any type can have multiple tags. Tags enable cross-cutting queries that the hierarchy alone cannot express -- for example, all unread cryptography material regardless of which Course or Product it belongs to.
 
 ## Database Conventions
  
 - All write operations follow a try/except/rollback pattern. On failure, changes since the last commit are undone and the error is re-raised with context.
-- All read operations (SELECT only) require no transaction handling — they have no side effects.
+- All read operations (SELECT only) require no transaction handling -- they have no side effects.
 - The database connection (`conn`) is opened once at program startup via `open_db()`, which applies required pragmas (`foreign_keys = ON`, `journal_mode = WAL`), and passed into every function that needs it. It is never opened inside individual functions.
 - Schema migrations are versioned and applied in order. A `schema_migrations` table tracks which have run. The filesystem of migration files is the source of truth for schema history.
  
 ## Graph Traversal
  
-The graph structure supports upward traversal from any item to all of its ancestors. This is used internally for progress propagation and is also available as a query for debugging and future UI work — for example, tracing which Projects a given Book ultimately contributes to. Traversal is implemented as a recursive CTE in SQL or an iterative depth-first walk in Python.
- 
+The graph structure supports upward traversal from any item to all of its ancestors. This is used internally for progress propagation and is also available as a query for debugging and future UI work -- for example, tracing which Projects a given Book ultimately contributes to. Traversal is implemented as a recursive CTE in SQL or an iterative depth-first walk in Python.
+
+## System Architecture
+
+Ilm Fehrist is composed of two independent binaries that communicate via a Unix domain socket.
+
+### ilm-daemon
+
+A persistent background process that owns all writes to the SQLite database. It has two internal modules:
+
+**LibraryWatcher** -- monitors the library root via inotify. On any filesystem event (file created, moved, deleted), it reconciles the change against the database using the crawler logic.
+
+**ReaderWatcher** -- monitors Zathura's history file (`~/.local/share/zathura/history`) via inotify. On any modification, it parses the file, matches the changed entry's path to a book in the database, and updates the reading position. This happens without interrupting the reading flow -- the user never interacts with it directly.
+
+The daemon is the single SQLite writer. All write operations -- whether triggered by filesystem changes, Zathura state changes, or UI commands -- go through the daemon. This eliminates write contention entirely.
+
+**ReaderWatcher implementation note:** Zathura may batch page updates rather than writing on every single turn. The daemon handles this correctly since reading position is forward-only -- a jump from page 5 to page 23 in one event is valid and expected.
+
+### ilm (Qt Quick frontend)
+
+A Qt Quick (Qt6) application targeting Wayland natively. It reads from SQLite directly -- WAL mode allows unlimited concurrent readers alongside the daemon's single writer, so no coordination is needed for reads.
+
+For write operations (adding tags, creating items, updating objective progress, etc.), the UI sends commands to the daemon via a Unix domain socket. The daemon executes the write and the UI reflects the change on its next read.
+
+### IPC
+
+Communication between the UI and daemon uses a Unix domain socket. The UI sends commands; the daemon executes them against SQLite and optionally sends a response. The SQLite database itself serves as the shared state -- the UI does not maintain its own copy of data.
+
+### Platform
+
+- **OS:** Arch Linux
+- **Compositor:** Hyprland (wlr-layer-shell based)
+- **Display protocol:** Wayland natively - no XWayland fallback
+- **Qt version:** Qt6 (`qt6-base`, `qt6-wayland`)
+- **PDF viewer:** Zathura (history file at `~/.local/share/zathura/history`)
+- **System tray:** StatusNotifierItem via Qt6 for daemon status indicator
+
 ## What Is Still Undefined
 
 - Project-specific metadata beyond deadline (if any)

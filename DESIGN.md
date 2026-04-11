@@ -1,10 +1,62 @@
 # Ilm Fehrist - System Design
 
 This document is the single source of truth for database schema and core logic.
-Read PHILOSOPHY.md for the reasoning behind these decisions.
+Read [PHILOSOPHY.md](./PHILOSOPHY.md) for the reasoning behind these decisions.
 
----
+## 0. Architecture Overview
 
+Ilm Fehrist runs as two binaries:
+```
+ilm-daemon
+|-- LibraryWatcher   inotify on LIBRARY_ROOT → crawler logic → SQLite
+|-- ReaderWatcher    inotify on Zathura history file → reading position → SQLite
+`-- Unix socket      receives write commands from the UI
+```
+```
+ilm (Qt Quick)
+|-- Reads SQLite directly (WAL, read-only)
+`-- Sends write commands to ilm-daemon via Unix socket
+```
+The daemon is the sole SQLite writer. The UI reads directly from SQLite for all queries.
+
+### Zathura History File
+
+Path: `~/.local/share/zathura/history`
+
+Format (INI):
+```ini
+[/absolute/path/to/file.pdf]
+page=12
+scale=1.000000
+rotation=0
+```
+
+On `IN_MODIFY` from inotify, the ReaderWatcher:
+1. Parses the history file
+2. Finds the entry whose path matches a known book in the DB
+3. Calls `update_reading_position` with the recorded page
+4. Progress propagates upward through the graph as normal
+
+Page jumps (e.g. page 5 → page 23 in one event) are handled correctly by the forward-only reading position logic.
+
+### Unix Socket Protocol
+
+Commands from UI to daemon are newline-delimited JSON:
+
+```json
+{ "cmd": "add_tag",   "item_id": 12, "tag": "cryptography" }
+{ "cmd": "add_edge",  "parent_id": 3, "child_id": 12 }
+{ "cmd": "update_objective", "objective_id": 5, "progress": 0.6 }
+```
+
+Daemon responds with:
+```json
+{ "ok": true }
+{ "ok": false, "error": "Cannot move reading position backwards" }
+```
+
+Schema for the protocol should be defined in a separate `PROTOCOL.md` once the command set stabilises
+.
 ## 1. Database Setup
 
 ```sql
@@ -31,8 +83,6 @@ items
 |-- tags
 `-- item_tags
 ```
-
----
 
 ## 2. Items
 
