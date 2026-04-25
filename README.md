@@ -6,6 +6,10 @@ progress across books, courses, products, and projects.
 A local-first, progress-aware knowledge indexing system.
 Part of the Kinu Cyber ecosystem.
 
+The ilm-daemon will be developed in C language.
+The frontend (Qt) will be developed in C++ language.
+The database is in simple SQLite format.
+
 ---
 
 For any inquiries: **contact@kinu.uk**
